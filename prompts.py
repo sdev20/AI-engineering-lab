@@ -36,3 +36,18 @@ use this information to build a short brochure of the company in markdown withou
 """
     user_prompt += f"{content}"
     return user_prompt
+
+
+def get_brochure_query():
+    # return """A company brochure is aimed for  prospective customers, investors and recruits. It
+    # inlcudes details of company products or services, team culture, existing customers and careers/jobs."""
+    return """what the company does, its mission and platform"""
+
+
+topic_queries = {
+    "overview_mission": """About us, our mission and vision and values""",
+    "products_services_technology": """the technology, products, capabilities and features""",
+    "customers": """customers, clients and partners, case studies, news and testimonials""",
+    "team_culture_careers": """team culture, work environment, benefits, our values, join us, work with us, career opportunities and hiring""",
+    "financials_investors": """raised, financials, revenue, growth, funding rounds and investors""",
+}

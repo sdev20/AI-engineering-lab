@@ -1,3 +1,6 @@
 /.env
 /.vscode
 __pycache__/
+cache/cellares.com.json
+.gitignore
+cache/huggingface.co.json
