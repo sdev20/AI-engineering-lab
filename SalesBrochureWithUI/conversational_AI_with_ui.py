@@ -11,21 +11,10 @@ model = API_MODEL
 system_message = "You are a helpful assistant"
 
 
-def brochure_releated_images(website_url):
-    """
-    Returns image URLs for a company’s brochure. Use when the user asks for pictures, images, or visuals.
-
-    Args:
-        website_url (str): The URL of the company website to generate a brochure for.
-    """
-    return "https://www.example.com/brochure_image.jpg"  # Placeholder for actual image generation logic
-
-
  #Map functions for the agent execution loop
 AVAILABLE_FUNCTIONS = {
     #"stream_brochure_for_ui_chat": stream_brochure_for_ui_chat
-    "create_brochure": create_brochure,
-    "brochure_releated_images": brochure_releated_images
+    "create_brochure": create_brochure
 }
 
 tools_schema = [
@@ -70,28 +59,7 @@ tools_schema = [
                         "required": ["website_url"]
                     }
                 }
-    },
-    {
-        "type" : "function",
-        "function": 
-                {
-                    "name": "brochure_releated_images",
-                    "description": "Provides images related to a company sales brochure for a given company website URL.",
-                    "parameters":
-                    {
-                        "type":"object",
-                        "properties": 
-                        {
-                            "website_url": 
-                            {
-                                "type": "string",
-                                "description": "The URL of the company website to generate a brochure for."
-                            }
-                        },
-                        "required": ["website_url"]
-                    }
-                }
-        }
+    }
 ]
 
 # def tool_calls_with_streaming_no_llm_at_the_end(reply, tool_calls_dict):

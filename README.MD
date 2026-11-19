@@ -108,11 +108,24 @@ Not built yet. The RAG path produces a brochure, but nothing measures whether it
 
 Things to remember when it is built: the fact list is chosen by hand, so about half of it will sit near the top of pages, which favours the baseline; the count measures what reaches the model, not how good the brochure is; and the RAG prompt adds a heading above every chunk, so compare total prompt tokens as well as the budget. A hybrid (the first lines of each page plus retrieved chunks) is an idea to try once the comparison exists.
 
+## Guardrails (to be implemented)
+
+Only **resource** guardrails exist so far: a token cap per page on the baseline and `RAG_BUDGET_TOKENS` on the RAG path (`MAX_CONTENT_TOKENS` is defined but not enforced), and links such as `mailto:` and `#anchors` are filtered out before link selection. There are no safety or quality guardrails. The plan, by kind:
+
+| Kind | What to add | Why it is needed here |
+|---|---|---|
+| **Input** | Allow only `http` and `https` URLs and refuse localhost and private addresses; add a timeout to every request | In the chat, the URL comes from a user and goes straight to `requests.get`, so the server can be made to fetch any address; today a request can also hang |
+| **Untrusted text** | Tell the model that page text is data and not instructions, and separate it clearly in the prompt | Scraped text is put into the prompt, so a page could say "ignore your instructions"; in the chat the brochure also returns to a model that has tools |
+| **Quality** | Tell the model to use only the provided text; if the fetched pages total very few tokens, say so instead of writing a brochure | Thin input (google.com, a maintenance page) lets the model fill gaps from what it already knows |
+| **Structured output** | Validate the link JSON: required keys present, and only URLs that were in the link list | The model can return a missing key or an invented URL, which today crashes the fetch loop or wastes a request |
+| **Loops and cost** | Cap the chat tool loop's iterations, validate the tool arguments, set `max_tokens` on the calls | The loop is `while True` and `json.loads` of the arguments is unguarded |
+
+Things to remember when it is built: each guardrail should be tested with a bad input (a localhost URL, a page that contains "ignore previous instructions", the Patagonia maintenance page, a link JSON with a missing key), and every refusal should say why instead of failing silently.
+
 ## Known issues and not done
 
 - The scraper does not run JavaScript. Script-rendered or blocked sites give almost nothing (google.com's landing page is about 33 tokens; patagonia.com returned a maintenance page). With thin input the model may fill gaps from what it already knows.
 - Link selection is an LLM call and varies between runs; once it returned ten `product` pages for Salesforce and nothing about the company. Links are not made absolute or deduplicated, so `stripe.com` and `stripe.com/` were fetched as two identical pages.
 - On the RAG path with `RAG_ENABLED=true`, the scraper skips the per-page cap, so `--stream` and the form UI (which do not use RAG) send uncapped pages.
 - No near-duplicate removal (the same logo wall on several pages), no per-topic score threshold (a topic with nothing on the site still takes chunks), and the heading above every chunk adds tokens that the budget does not count.
-- No guardrails beyond token caps: nothing guards against prompt injection from scraped text, URLs are not checked (a chat user can make the server fetch any address), and the link JSON is not validated.
-- The chat loop has no iteration cap, and `brochure_releated_images` is a placeholder that returns a fake URL.
+- No guardrails beyond the token caps (see above).
