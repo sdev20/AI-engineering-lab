@@ -1,6 +1,7 @@
 /.env
 /.vscode
 __pycache__/
-cache/cellares.com.json
+cache/*
 .gitignore
-cache/huggingface.co.json
+eval_items.py
+evaluation.py

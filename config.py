@@ -26,3 +26,14 @@ RAG_ENABLED = os.getenv("RAG_ENABLED", "false").strip().lower() in ("1", "true",
 EMBEDDING_MODEL="text-embedding-3-small"
 
 EMBEDDING_BATCH_SIZE=100
+
+# A line that appears on more than this share of a site's fetched pages is treated as menu or
+# boilerplate text and removed (0.35 removes Stripe's mega-menu, which is on only 4 of 11 pages).
+# Lower values remove more; short standalone lines that repeat (such as product names) go too.
+REPEATED_LINE_MIN_SHARE = 0.35
+
+# Token budget for the brochure context on the RAG path. It is deliberately lower than MAX_CONTENT_TOKENS:
+# with cleaned pages most sites total only 15k to 22k tokens, so a 25k budget would simply take every chunk
+# and retrieval would have nothing to choose. A smaller budget (about the size of the first multi-query
+# unions, 6.5k to 11k tokens) makes the comparison with the baseline meaningful.
+RAG_BUDGET_TOKENS = 8_000

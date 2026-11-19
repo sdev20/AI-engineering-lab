@@ -120,6 +120,48 @@ def union_top_k(chunks, similarities, topic_names, k):
     return list(union.values())
 
 
+def fill_budget(chunks, similarities, topic_names, budget_tokens):
+    """
+    Fills a token budget with chunks by taking turns between the topics.
+
+    On each turn a topic gets its best-scoring chunk that is not already chosen and still fits in the
+    remaining budget. A chunk that does not fit is skipped, so a smaller chunk further down the topic's
+    ranking can still be used. Scores of different topics are not comparable, so taking turns (and not
+    sorting all chunks by score) keeps one topic from using the whole budget. Filling stops when no topic
+    can add anything.
+
+    Args:
+        chunks (list): Chunk dicts, in the same order as the rows of `similarities`.
+        similarities (np.ndarray): Shape (n_chunks, n_topics), one column per topic.
+        topic_names (list): Topic names, in the same order as the columns.
+        budget_tokens (int): The most tokens the chosen chunks may total (the overlap between neighbouring chunks counts).
+
+    Returns:
+        list: One record per chosen chunk, in the shape returned by union_top_k:
+              {"chunk": <chunk dict>, "topics": [the topic that chose it], "best_score": float}
+    """
+    chunk_tokens = [get_tokens_count(chunk["content"]) for chunk in chunks]
+    rankings = [np.argsort(similarities[:, j])[::-1] for j in range(len(topic_names))]   # positions, best first
+    next_rank = [0] * len(topic_names)   # how far down each topic's ranking we have looked
+    chosen = {}                          # chunk position -> record
+    used_tokens = 0
+
+    while True:
+        added_in_this_round = False
+        for j, topic in enumerate(topic_names):
+            while next_rank[j] < len(rankings[j]):
+                position = int(rankings[j][next_rank[j]])
+                next_rank[j] += 1
+                if position in chosen or used_tokens + chunk_tokens[position] > budget_tokens:
+                    continue
+                chosen[position] = {"chunk": chunks[position], "topics": [topic], "best_score": float(similarities[position, j])}
+                used_tokens += chunk_tokens[position]
+                added_in_this_round = True
+                break
+        if not added_in_this_round:
+            return list(chosen.values())
+
+
 def order_chunks(union, chunks):
     """
     Puts the selected chunks back into reading order: pages in the order they were

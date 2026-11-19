@@ -1,98 +1,39 @@
 # AI Engineering Lab
 
-A hands-on lab for exploring AI engineering concepts by building real features, measuring LLM output, and recording why each decision was made.
+A learning project: given a company's website, it writes a short Markdown brochure for prospective customers, investors and recruits. The brochure is the vehicle. The point is to learn the engineering around an LLM call: token budgets and cost, retrieval (RAG), tool calling and small UIs, and to record why each decision was made.
 
-The project is a **sales brochure generator**: given a company's website, it writes a short Markdown brochure for prospective customers, investors, and recruits. Further experiments (RAG, tool calling, UIs) are built on top of it.
+## What I built and learned
 
-The brochure generator is the vehicle; the focus is the engineering decisions around it.
-
-## What this project demonstrates
-
-| Skill | Where to look |
+| Topic | Where |
 |---|---|
-| Calling LLM APIs, including streaming responses | `brochure_generation.py`, `llm_client.py` |
-| Structured output: asking the model for JSON (link selection) | `brochure_generation.py` |
-| Token budgeting and cost control, backed by measurements on real sites | `tokens.py`, `config.py`, [Design decisions](#design-decisions) |
-| RAG building blocks: token-based chunking, embeddings, similarity ranking (in progress) | `rag.py`, [Flow being built](#flow-being-built-rag-experiment) |
-| Tool calling and an agent-style loop, including assembling streamed tool-call fragments | `SalesBrochureWithUI/conversational_AI_with_ui.py` |
-| Gradio UIs: a streaming form and a chat | `SalesBrochureWithUI/` |
-| Web scraping with `requests` and BeautifulSoup | `scraper.py` |
-| Engineering judgment: trade-offs, known issues and limitations documented openly | [Design decisions](#design-decisions), [Limitations](#limitations) |
-
-
-## Design focus: token budgets and cost control
-
-The brochure itself is simple to produce. Most of the engineering effort here goes into deciding **how much website text the model should read**, because that drives cost, latency, and quality. The recurring questions are:
-
-- How many tokens does each page cost, and what is the total per request?
-- What do we keep when a site is bigger than the budget?
-- How do we choose what to keep so the useful facts survive?
-
-Decisions below are made from measurements on real sites (google.com,huggingface.com). In LLM-engineering terms, the limits are *resource guardrails* (cost and size caps). There are no safety or quality guardrails yet (see Limitations).
+| LLM calls, streaming, JSON output (link selection) | `brochure_generation.py`, `llm_client.py` |
+| Token budgeting with `tiktoken`, measured on real sites | `tokens.py`, `config.py` |
+| RAG from scratch: chunking, embeddings, similarity, multi-query selection, budget filling | `rag.py` |
+| Freezing fetched pages so experiments repeat exactly | `page_cache.py` |
+| Scraping and cleaning page text | `scraper.py` |
+| Tool calling and an agent loop, with Gradio UIs | `SalesBrochureWithUI/` |
 
 ## How it works
 
-### Flow that runs today
+**Baseline** (the default):
 
 ```
-URL
- → fetch landing page + collect its links             (scraper.py)
- → LLM picks the relevant links, returns JSON         (brochure_generation.py)
- → fetch each selected page, keep first MAX_PAGE_TOKENS tokens   (scraper.py, tokens.py)
- → join pages into one prompt                          (brochure_generation.py)
- → LLM writes the brochure                             (brochure_generation.py)
+URL -> collect links -> LLM picks the relevant ones (JSON) -> fetch each page
+    -> keep the first MAX_PAGE_TOKENS tokens of each page -> one prompt -> LLM writes the brochure
 ```
 
-This is the **baseline**: simple and predictable, but it always keeps the *start* of each page, whether or not that part is useful.
-
-### Flow being built (RAG experiment)
+**RAG path** (`RAG_ENABLED=true`):
 
 ```
-URL
- → fetch landing page + selected links, pages kept (nearly) uncut
- → split every page into overlapping token chunks      (rag.py, done)
- → embed every chunk and a fixed brochure query        (planned)
- → rank chunks by cosine similarity to the query       (planned)
- → fill MAX_CONTENT_TOKENS with the best chunks,       (planned)
-   restore page and reading order
- → format into the prompt → LLM writes the brochure
+URL -> same pages, uncut, saved in cache/<site>.json
+    -> split every page into overlapping token chunks -> embed chunks and five topic queries
+    -> score every chunk against every topic -> fill RAG_BUDGET_TOKENS by taking turns between topics
+    -> put the chosen chunks back in reading order -> one prompt -> LLM writes the brochure
 ```
 
-Progress:
+The five topic queries (`prompts.py`): what the company does, products and technology, customers, team culture and careers, financials and investors.
 
-| Step | What | Status |
-|---|---|---|
-| R1 | Chunk page text in tokens, with overlap, keeping page type, URL and position | Done (`rag.py`) |
-| R2 | Embed chunks and the query | In progress (`embed_texts` in `rag.py` works; query embedding and caching next) |
-| R3 | Cosine similarity ranking | Planned |
-| R4 | Fill the token budget with top chunks, restore order | Planned |
-| R5 | Compare against the baseline on the same cached pages | Planned |
-| R6 | Tune chunk size, overlap, query wording, diversity, near-duplicates | Planned |
-
-## Project layout
-
-| File | Purpose |
-|---|---|
-| `main.py` | Command-line entry point |
-| `brochure_generation.py` | Pipeline: link selection, page fetching, brochure generation (normal and streaming) |
-| `scraper.py` | Fetches links and page text with `requests` and BeautifulSoup |
-| `tokens.py` | Token counting, truncation, and encode/decode helpers (`tiktoken`) |
-| `rag.py` | Token-based chunking (`chunk_text`, `chunk_pages`) and embeddings (`embed_texts`); ranking will go here |
-| `llm_client.py` | The single shared OpenAI client used by the pipeline, the RAG code and the UI |
-| `prompts.py` | System and user prompts |
-| `config.py` | Model name and size limits |
-| `SalesBrochureWithUI/stream_brochure_with_ui.py` | Gradio form: enter a URL, watch the brochure stream in |
-| `SalesBrochureWithUI/conversational_AI_with_ui.py` | Gradio chat that decides by itself which tools to call and then answers from their results |
-
-## Requirements
-
-- Python 3
-- An OpenAI API key with access to the configured model
-- Network access to the target website and the OpenAI API
-
-## Setup
-
-Create and activate a virtual environment, then install the dependencies:
+## Setup and run
 
 ```bash
 python3 -m venv .venv
@@ -100,165 +41,78 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-Create a `.env` file in the project directory with your API key:
+Create a `.env` file:
 
 ```dotenv
 OPENAI_API_KEY=your-openai-api-key
+RAG_ENABLED=true        # optional; leave out for the baseline
 ```
-
-To try the RAG path (see below), add this optional line to `.env`:
-
-```dotenv
-RAG_ENABLED=true
-```
-
-The model name and size limits are set in `config.py`, not in `.env`.
-
-## Generate a brochure
 
 ```bash
-python main.py https://example.com
+python main.py https://example.com            # prints the brochure
+python main.py https://example.com --stream   # streams it (baseline path only)
 ```
 
-Add `--stream` to print the brochure as it is generated. Without it, the full brochure is printed at the end. The brochure is not saved to a file.
+On the RAG path the fetched pages are saved in `cache/<domain>.json` and reused. Delete a site's file to fetch it again (the link selection is an LLM call, so it can pick different pages each time). `cache/` should stay out of git.
 
-## Web UI (Gradio)
-
-Two small Gradio apps live in `SalesBrochureWithUI/`. Run them **from the project root**, because they import `config`, `llm_client` and `brochure_generation` from the root folder.
-
-Plain URL form (streams the brochure):
+**Gradio apps** (run from the project root):
 
 ```bash
-python -m SalesBrochureWithUI.stream_brochure_with_ui
+python -m SalesBrochureWithUI.stream_brochure_with_ui         # URL form, streams the brochure
+python -m SalesBrochureWithUI.conversational_AI_with_ui       # chat that calls the brochure generator as a tool
+PYTHONPATH=. gradio SalesBrochureWithUI/conversational_AI_with_ui.py --demo-name view    # auto-reload
 ```
 
-Chat that calls the brochure generator as a tool when the user asks for one:
-
-```bash
-python -m SalesBrochureWithUI.conversational_AI_with_ui
-```
-
-To reload automatically when you save a file, use the Gradio CLI. It runs the file as a script, so add the project root to `PYTHONPATH`, and tell it the name of the app object (`view`):
-
-```bash
-PYTHONPATH=. gradio SalesBrochureWithUI/conversational_AI_with_ui.py --demo-name view
-```
-
-Why `-m` and `PYTHONPATH`: running `python path/to/file.py` only puts that file's own folder on `sys.path`, so `from config import ...` fails with `ModuleNotFoundError`. `python -m Package.module` from the root, or `PYTHONPATH=.`, makes the root-level modules importable.
-
-How the chat works (`conversational_AI_with_ui.py`):
-
-1. The conversation (system prompt, Gradio `history`, the new message) goes to the model together with a tool schema for multiple tools.
-2. If the response from tools is not required to send to llm: Direct streaming from tools: 
-the reply is streamed. Plain text is shown as it arrives; a tool call arrives in fragments (`id` and name in the first, JSON `arguments` in pieces), so fragments are merged by `index` and the arguments are parsed only after the stream ends.
-3. If the response from tools is required to send to llm to summarize: 
-if the model asked for tools, the chat appends **one assistant message** that carries all the `tool_calls` (each with `id`, `type: "function"` and the raw `arguments` string), then runs each function from `AVAILABLE_FUNCTIONS` and appends one `tool` message per call, matched by `tool_call_id`. Tool results must be strings.
-
-The loop calls the model again with those results, and the model writes the final answer. It repeats until a response has no tool calls (`while True` / `break`).
-
-Gradio's `history` only contains what was displayed, so tool calls and tool outputs from earlier turns are not remembered in later turns; only the final replies are.
+`python path/to/file.py` only puts that file's folder on `sys.path`, so `from config import ...` fails. `-m` or `PYTHONPATH=.` from the root fixes it. The `gradio` command starts the app in a subprocess, so setting `PYTHONPATH` is what makes the import work there.
 
 ## Configuration (`config.py`)
 
 | Setting | Value | Meaning |
 |---|---|---|
-| `API_MODEL` | `gpt-4o-mini` | Model used for link selection and brochure generation; also selects the `tiktoken` encoding |
-| `MAX_LINKS_PER_PAGE` | 10 | Maximum linked pages fetched in addition to the landing page |
+| `API_MODEL` | `gpt-4o-mini` | Chat model; also selects the `tiktoken` encoding |
+| `MAX_LINKS_PER_PAGE` | 10 | Linked pages fetched besides the landing page |
 | `MAX_PAGE_TOKENS` | 2,500 | Tokens kept per page in the baseline |
-| `MAX_CONTENT_TOKENS` | 25,000 | Limit for all scraped content in one request (to be enforced by the RAG budget step) |
-| `CHUNK_TOKENS_SIZE` | 350 | Tokens per chunk |
-| `CHUNK_OVERLAP_TOKENS_SIZE` | 50 | Tokens shared between neighbouring chunks |
-| `RAG_ENABLED` | `false` | Read from `.env`. When true, pages are fetched without the per-page cap and chunked; when false, the baseline runs |
+| `CHUNK_TOKENS_SIZE` / `CHUNK_OVERLAP_TOKENS_SIZE` | 350 / 50 | Chunk size and overlap |
+| `EMBEDDING_MODEL` / `EMBEDDING_BATCH_SIZE` | `text-embedding-3-small` / 100 | Embeddings and texts per request |
+| `RAG_BUDGET_TOKENS` | 8,000 | Chunk tokens sent to the model on the RAG path |
+| `REPEATED_LINE_MIN_SHARE` | 0.35 | Lines repeated across more than this share of pages are removed as menu text |
+| `RAG_ENABLED` | `false` | From `.env`: switches to the RAG path |
+| `MAX_CONTENT_TOKENS` | 25,000 | Defined but not enforced anywhere |
 
-## Design decisions
+## What I learned
 
-### Limits and tokens
+**Tokens, not characters.** Characters per token varied from about 1.1 (Hugging Face's pricing page) to about 4 (ordinary prose), so a character cap cannot predict cost or fit. Limits are in tokens, measured with `tiktoken`. The context window (200k) is not the reason to limit input; cost, latency and noise are.
 
-**Why limit scraped content at all?** The context window is large (200k tokens for the model I checked), so the limits are not about fitting. They keep cost and latency down, stop noisy text from diluting the useful facts, and protect against unusually large pages or link lists.
+**Look at what the scraped text really is.** Cleaning the page text mattered more than any retrieval setting:
+- `nav` and `footer` removal is safe (4 to 23% fewer tokens). Removing `header`, or anything hidden or `aria-hidden`, deletes real content such as headings, customer stories and testimonials.
+- 82 to 84% of Hugging Face's pricing and enterprise pages were text art (`✳ ⟡ · ◎`). Dropping symbol-only lines took the whole site from 35.6k to about 11k tokens.
+- Menus built from plain `div`s are removed by deleting lines that repeat across 35% or more of a site's pages.
+- `requests` guesses ISO-8859-1 when a server sends no charset, which garbled UTF-8 text. Passing the raw bytes to BeautifulSoup fixes it.
 
-**Why a token limit and not a character limit?** Tokens per character vary a lot. On huggingface.com the pricing and enterprise pages hit the old 8,000-character cap but cost 7,240 and 6,362 tokens (about 1.1 characters per token), while ordinary pages cost about 1,500 tokens (about 4 characters per token). A character cap cannot predict cost, so a token cap, measured with `tiktoken`, matches what the model reads and what is billed.
+**Chunking.** Chunks are cut by tokens (350, overlap 50) so their size is predictable and the budget arithmetic is exact. Each chunk keeps its page type, URL and position so the selection can be put back in reading order. Plain NumPy was enough for similarity: OpenAI embeddings have length 1, so the dot product is the cosine similarity.
 
-**Why 2,500 tokens per page (baseline)?** Most pages measured 250 to 2,000 tokens, so 2,500 leaves them whole and only trims outliers. It is also close to an even share of the budget: 25,000 tokens across 11 pages is about 2,270.
+**One query is the wrong shape for a brochure.** A query mixing products, customers and careers blurs into one point between the topics, so scores were low and flat (0.04 to 0.27) and generic chunks ranked well. Five topic queries scored separately work better than one. Queries should describe content, not give instructions.
 
-**Why 25,000 tokens in total?** Measured inputs ranged from about 5k to 22k tokens. 25k covers that range with some room. It is a cost and quality guard, not a context-window limit. Output is not a concern: briefs were 484 to 685 tokens whatever the input size.
+**Fill the budget by taking turns.** Scores are not comparable between topics, so sorting all chunks by score could let one topic take the whole budget. `fill_budget` gives each topic its best unchosen chunk in turn until the budget is used.
 
-**Why was the old 5,000-character prompt cut removed?** It came from a tutorial example. It cut the combined text, so it silently dropped the linked pages, which are the content the link-selection step exists to collect. Prompt-building code now only builds the prompt; limits are applied to the scraped content before it.
+**Tool calling.** The model chooses tools from their name and description; tool results go back as `tool` messages matched by `tool_call_id`, after one assistant message that carries all the `tool_calls`; streamed tool calls arrive in fragments that are merged by `index`. A Gradio chat function must `yield` its output, because a `return` value is discarded.
 
-### Why RAG
+## Evaluation (to be implemented)
 
-The baseline's per-page cut keeps the first 2,500 tokens of every page, so what survives depends on position, not relevance. Uncut, the real page sizes turned out to be larger than the old caps showed:
+Not built yet. The RAG path produces a brochure, but nothing measures whether its selection is better than the baseline's. The plan:
 
-- Hugging Face pricing is about 15k tokens and enterprise about 12k, versus 7,240 and 6,362 when capped.
-- Those two pages are 93 of 130 chunks (about 70%). All pages together come to about 43.7k chunk tokens, against a 25k budget.
+1. Freeze the pages of a few sites (done, see `page_cache.py`).
+2. Write a short list of must-have facts per site, grouped by topic (the slogan, a few customer names, a careers line, a product).
+3. Build the baseline context and the RAG context at the **same token budget**, so only the selection differs.
+4. Count how many facts each context contains, overall and per topic, and read the generated brochures too.
 
-So about 40% of the content has to go, and the question is which 40%. Ranking chunks by similarity to a brochure-focused query chooses by relevance instead of by position or page length, and it can pick useful passages from anywhere in a long page. This is also how unpredictable page types are ranked: the link-selection model invents the type names, so ranking by type would not work across sites.
+Things to remember when it is built: the fact list is chosen by hand, so about half of it will sit near the top of pages, which favours the baseline; the count measures what reaches the model, not how good the brochure is; and the RAG prompt adds a heading above every chunk, so compare total prompt tokens as well as the budget. A hybrid (the first lines of each page plus retrieved chunks) is an idea to try once the comparison exists.
 
-The baseline is kept so the two approaches can be compared on the same pages.
+## Known issues and not done
 
-### Chunking
-
-**Why chunk in tokens and not characters?** For the same reason as the page limits: a chunk of 1,200 characters can be 300 or 1,000 tokens. Token-sized chunks are evenly sized, fit the embedding model's input limit, and make the budget arithmetic exact. Token boundaries decide the cut; each slice is decoded back to text, because embeddings and prompts take text.
-
-**Why chunk at all?** Embedding a whole page gives one vector that blends every topic on it, so ranking could only choose whole pages. Chunks let retrieval pick the right passages.
-
-**Why 350 tokens with 50 overlap?** Starting values: large enough to hold a complete idea, small enough to stay on one topic. Overlap keeps a sentence that falls on a boundary whole in a neighbouring chunk. It costs about 14% more tokens to embed (130 chunks hold 43.7k tokens, but about 37.7k are unique). If two adjacent chunks are both selected, the overlapping text appears twice in the prompt, which the budget step has to handle. Both numbers are to be tuned in R6.
-
-**Why does every chunk carry `url`, `type`, `content`, and `index`?** After ranking, chunks from different pages are mixed. The page type is needed for prompt headings, `index` restores reading order within a page, and the source page is needed to judge which pages the winning chunks came from. `index` restarts at 0 for each page.
-
-**Why no vector database?** A page set is 100 to 250 chunks and is rebuilt for each run, so a Python list and `numpy` are enough, and they keep the mechanics visible.
-
-**Why must pages reach `rag.py` (nearly) uncut?** If the scraper has already cut a page to 2,500 tokens, retrieval can never choose the later parts. The baseline cap therefore must not apply to the RAG path; only a large safety cap should, so one huge page cannot flood the pipeline.
-
-### Chat UI and tool calling
-
-**Why tool calling and not URL detection?** A regex on the message would treat any pasted link as "make a brochure" ("what does https://x.com do?") and would miss phrasing like "do one for stripe's site". With a tool schema the model decides whether the user wants a brochure and extracts the URL itself.
-
-**Why send the tool results back to the model?** The model can combine the output of several tools into a single coherent reply. This requires a full round trip: tool results are returned to the model, which then writes the final answer.
-
-Trade-offs of this design:
-
-- **Cost:** the full brochure is sent back to the model as input tokens.
-- **Latency:** nothing streams from the tools (`create_brochure` is the non-streaming function), so the user waits for the final reply.
-- **Fidelity:** the model may paraphrase or shorten the brochure.
-
-For a single brochure tool, streaming the tool's output directly and ending the turn is cheaper and faster. The round trip pays off when a reply depends on more than one tool.
-
-**Why does the order of messages matter?** The API requires an assistant message containing `tool_calls`, followed by one `tool` message for every call id, before the next model call. Leaving out the assistant message, using a made-up role, or putting a non-string (for example a generator) in a tool message's `content` gives a 400 error.
-
-**Why might the model not call a tool?** With `tool_choice="auto"` it calls only the tools that serve the request, judged from each tool's `name` and `description`. A vague description or a request that does not mention images means the images tool is skipped. Clear "use when the user asks for …" wording in the description helps.
-
-**Why does the model pick a tool by name and description only?** It never sees the Python functions, so it cannot know whether one streams. Streaming is a UI concern: expose one tool per purpose and point its name at the implementation you want.
-
-**Why does `chat` yield instead of return?** `chat` is a generator, so a `return value` ends it and the value is discarded; Gradio then shows an empty reply with no error. Results must be `yield`ed (or forwarded with `yield from`).
-
-## Measurements
-
-Baseline input and output (before per-page token caps):
-
-| Site | Input tokens | Output tokens |
-|---|---|---|
-| google.com | 4,706 | 558 |
-| cellares.com | about 15,100 | 685 |
-| huggingface.com | 22,028 | 484 |
-
-Chunking huggingface.com with the uncut scraper: 11 pages, 130 chunks, 43,664 chunk tokens. Pricing (51 chunks) and enterprise (42 chunks) dominate.
-
-## Work in progress and known issues in the code
-
-- With `RAG_ENABLED=true`, pages are fetched **without** any cap and chunked, but the chunks are not used yet: all page text is still sent to the model. Nothing is ranked or limited until R2 to R4 are connected, so a run with the flag on can exceed `MAX_CONTENT_TOKENS`. With the flag off (the default), the capped baseline runs for both normal and streaming modes.
-- There is no RAG safety cap in `config.py` yet.
-- The chat's `while True` loop has no iteration cap, so a model that keeps requesting tools would loop. `json.loads` of the tool arguments is not guarded against malformed JSON.
-- The chat shows nothing from the tools until the final model reply starts, so brochure requests can sit empty for a while (scraping, link selection, and two model calls).
-- `brochure_releated_images` is a placeholder that returns a fixed example URL (and has a spelling typo in its name); the model will present that URL as if it were real.
-- Chat history grows every turn and the full brochure is sent back as a tool result, so long chats get expensive.
-- `stream_brochure_with_ui.py` still has leftover tutorial code (`message_gpt`, `stream_gpt`, the example row and the "Message Shouter" title).
-- The link-selection step is not deterministic, so two runs on the same site can fetch different pages. Cache fetched pages (for example to a JSON file) when comparing baseline and RAG.
-- The last chunk of a page can be tiny, with only a token or two of new text.
-
-## Limitations
-
-- The scraper reads HTML and does not run JavaScript, so script-rendered sites return little text (google.com's landing page is about 33 tokens; a Workable careers page gave one chunk). With thin input the model may fill gaps from what it already knows, so check the brochure against the source.
-- Only links on the landing page are followed, links are not normalised or deduplicated, and the model sometimes selects near-duplicates (for example several news articles on cellares.com).
-- Navigation, footer, and similar boilerplate text is not removed from pages.
-- Website requests can fail because of network errors or site restrictions, and there is no request timeout yet.
-- Guardrails: only resource limits (token caps) exist. There is no protection against prompt injection from scraped text, no check that the brochure sticks to the source, no validation of the link JSON, and no block on private or local URLs.
+- The scraper does not run JavaScript. Script-rendered or blocked sites give almost nothing (google.com's landing page is about 33 tokens; patagonia.com returned a maintenance page). With thin input the model may fill gaps from what it already knows.
+- Link selection is an LLM call and varies between runs; once it returned ten `product` pages for Salesforce and nothing about the company. Links are not made absolute or deduplicated, so `stripe.com` and `stripe.com/` were fetched as two identical pages.
+- On the RAG path with `RAG_ENABLED=true`, the scraper skips the per-page cap, so `--stream` and the form UI (which do not use RAG) send uncapped pages.
+- No near-duplicate removal (the same logo wall on several pages), no per-topic score threshold (a topic with nothing on the site still takes chunks), and the heading above every chunk adds tokens that the budget does not count.
+- No guardrails beyond token caps: nothing guards against prompt injection from scraped text, URLs are not checked (a chat user can make the server fetch any address), and the link JSON is not validated.
+- The chat loop has no iteration cap, and `brochure_releated_images` is a placeholder that returns a fake URL.

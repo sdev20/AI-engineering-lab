@@ -1,10 +1,10 @@
 import json
-from config import CHUNK_OVERLAP_TOKENS_SIZE, MAX_CONTENT_TOKENS, MAX_LINKS_PER_PAGE, API_MODEL, CHUNK_TOKENS_SIZE, RAG_ENABLED
+from config import CHUNK_OVERLAP_TOKENS_SIZE, MAX_CONTENT_TOKENS, MAX_LINKS_PER_PAGE, API_MODEL, CHUNK_TOKENS_SIZE, RAG_BUDGET_TOKENS, RAG_ENABLED
 from page_cache import get_pages
 from prompts import get_brochure_query, get_brochure_system_prompt, get_brochure_user_prompt, get_relevant_links_system_prompt, get_relevant_links_user_prompt, topic_queries
 from llm_client import client
-from rag import chunk_pages, embed_texts, order_chunks, print_chunks, print_union_summary, rank_chunks, total_chunk_tokens, union_top_k
-from scraper import fetch_website_content, fetch_website_links
+from rag import chunk_pages, embed_texts, fill_budget, order_chunks, print_chunks, print_union_summary, rank_chunks, total_chunk_tokens, union_top_k
+from scraper import fetch_website_content, fetch_website_links, remove_repeated_lines
 #from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 
@@ -42,7 +42,7 @@ def fetch_content_and_relevant_links(website_url):
         website_url (str): The URL of the website to scrape.
 
     Returns:
-        list: A list of pages with their content and URLs.
+        list: A list of pages with their content and URLs, with the lines that repeat across pages (menus) removed.
     """
 
     # fetch the list of links from the website
@@ -54,7 +54,7 @@ def fetch_content_and_relevant_links(website_url):
 
     for link in relevant_links['links'][:MAX_LINKS_PER_PAGE]:
        pages.append({"type": link['type'], "content": fetch_website_content(link["url"]), "url": link["url"]})
-    return pages
+    return remove_repeated_lines(pages)
 
 
 def create_brochure(website_url):
@@ -119,29 +119,24 @@ def create_brochure_with_rag(website_url):
     print(f"Similarities shape: {similarities.shape}")
 
     topic_names = list(topic_queries)
-    union = union_top_k(chunks, similarities, topic_names, k=10)
-    print_union_summary(union, len(topic_names), 10)
-    print(f"Union of top 10 chunks for each topic: {len(union)} chunks")
-    ordered = order_chunks(union, chunks)
-    print(total_chunk_tokens(ordered), "tokens in ordered union of top 10 chunks for each topic")
+    selected = fill_budget(chunks, similarities, topic_names, RAG_BUDGET_TOKENS)
+    ordered = order_chunks(selected, chunks)
+    print(f"Selected {len(ordered)} of {len(chunks)} chunks: {total_chunk_tokens(ordered)} tokens (budget {RAG_BUDGET_TOKENS})")
 
+    company_content = format_chunks_for_brochure(ordered)
 
-    # company_content = format_pages_for_brochure(pages)
+    system_prompt = get_brochure_system_prompt()
+    user_prompt = get_brochure_user_prompt(company_content)
 
-    # system_prompt = get_brochure_system_prompt() 
-    # user_prompt = get_brochure_user_prompt(company_content)
+    brochure_response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+        )
 
-    # brochure_response = client.chat.completions.create(
-    #         model=model,
-    #         messages=[
-    #             {"role": "system", "content": system_prompt},
-    #             {"role": "user", "content": user_prompt}
-    #         ],
-    #     )
-
-    # result = brochure_response.choices[0].message.content
-    #return result
-    return ""
+    return brochure_response.choices[0].message.content
 
 
 
