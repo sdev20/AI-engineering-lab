@@ -1,6 +1,10 @@
-# AI Engineering Lab
+# RAG Lab - Web Content Retriever
 
-A learning project: given a company's website, it writes a short Markdown brochure for prospective customers, investors and recruits. The brochure is the vehicle. The point is to learn the engineering around an LLM call: token budgets and cost, retrieval (RAG), tool calling and small UIs, and to record why each decision was made.
+A learning lab for retrieval-augmented generation (RAG) over website content: token-based chunking, embeddings, similarity search, multi-query selection and token-budget filling. Along the way: token budgets and cost control, scraping, tool calling and small Gradio UIs, with the reason for each decision recorded.
+
+NOTE: It is built without any in-built framework for now, adding LangChain and a vector database is a possible later step. 
+
+The task used to try it is a **company brochure generator**: given a company's website, it writes a short Markdown brochure for prospective customers, investors and recruits.
 
 ## What I built and learned
 
@@ -89,7 +93,7 @@ PYTHONPATH=. gradio SalesBrochureWithUI/conversational_AI_with_ui.py --demo-name
 - Menus built from plain `div`s are removed by deleting lines that repeat across 35% or more of a site's pages.
 - `requests` guesses ISO-8859-1 when a server sends no charset, which garbled UTF-8 text. Passing the raw bytes to BeautifulSoup fixes it.
 
-**Chunking.** Chunks are cut by tokens (350, overlap 50) so their size is predictable and the budget arithmetic is exact. Each chunk keeps its page type, URL and position so the selection can be put back in reading order. Plain NumPy was enough for similarity: OpenAI embeddings have length 1, so the dot product is the cosine similarity.
+**Chunking by tokens, not characters.** The same number of characters can be 300 tokens (prose) or 1,000 (price tables, symbols), so character-sized chunks would vary widely in what they cost the budget and the embedding model. Token-sized chunks are even, fit the embedding input limit and make the `fill_budget` arithmetic exact. Chunks are cut on the token list (350 tokens, 50 overlap) and each slice is decoded back to text. The cost is that a cut can fall mid-sentence; the overlap softens this, and splitting on paragraph boundaries is the alternative I did not try. Each chunk keeps its page type, URL and position so the selection can be put back in reading order. Plain NumPy was enough for similarity: OpenAI embeddings have length 1, so the dot product is the cosine similarity.
 
 **One query is the wrong shape for a brochure.** A query mixing products, customers and careers blurs into one point between the topics, so scores were low and flat (0.04 to 0.27) and generic chunks ranked well. Five topic queries scored separately work better than one. Queries should describe content, not give instructions.
 
